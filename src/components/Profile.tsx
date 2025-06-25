@@ -1,5 +1,4 @@
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,15 +6,21 @@ import { Label } from '@/components/ui/label';
 import { User, Mail, Shield, Calendar, Edit2, Save, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { usersAPI, statsAPI } from '../services/api';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const Profile = () => {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     name: user?.name || 'John Doe',
     email: user?.email || 'john.doe@company.com'
   });
+  const [userStats, setUserStats] = useState({ documentsUploaded: 0, storageUsed: 0, lastLogin: '', loading: true, error: null });
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '' });
+  const [passwordLoading, setPasswordLoading] = useState(false);
 
   const userInfo = {
     name: user?.name || 'John Doe',
@@ -28,42 +33,50 @@ const Profile = () => {
     storageLimit: '10 GB'
   };
 
-  const handleSaveProfile = () => {
+  useEffect(() => {
+    if (!user?.id) return;
+    setUserStats((s) => ({ ...s, loading: true, error: null }));
+    statsAPI.getUserStats(user.id)
+      .then(res => {
+        const stats = res.data.stats;
+        setUserStats({
+          documentsUploaded: stats.documentsUploaded,
+          storageUsed: stats.storageUsed,
+          lastLogin: stats.lastLogin || '',
+          loading: false,
+          error: null
+        });
+      })
+      .catch(err => {
+        setUserStats((s) => ({ ...s, loading: false, error: 'Failed to load stats' }));
+      });
+  }, [user?.id]);
+
+  const handleSaveProfile = async () => {
     // Validate form
     if (!editForm.name.trim()) {
-      toast({
-        title: "Name required",
-        description: "Please enter your name",
-        variant: "destructive",
-      });
+      toast({ title: 'Name required', description: 'Please enter your name', variant: 'destructive' });
       return;
     }
-
     if (!editForm.email.trim()) {
-      toast({
-        title: "Email required",
-        description: "Please enter your email",
-        variant: "destructive",
-      });
+      toast({ title: 'Email required', description: 'Please enter your email', variant: 'destructive' });
       return;
     }
-
-    // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(editForm.email)) {
-      toast({
-        title: "Invalid email",
-        description: "Please enter a valid email address",
-        variant: "destructive",
-      });
+      toast({ title: 'Invalid email', description: 'Please enter a valid email address', variant: 'destructive' });
       return;
     }
-
-    toast({
-      title: "Profile updated",
-      description: "Your profile has been updated successfully",
-    });
-    setIsEditing(false);
+    try {
+      await usersAPI.updateProfile(user.id, { name: editForm.name, email: editForm.email, role: user.role });
+      const updated = { ...user, name: editForm.name, email: editForm.email };
+      localStorage.setItem('user', JSON.stringify(updated));
+      setUser(updated);
+      toast({ title: 'Profile updated', description: 'Your profile has been updated successfully' });
+      setIsEditing(false);
+    } catch (err) {
+      toast({ title: 'Error', description: err?.response?.data?.error || 'Failed to update profile', variant: 'destructive' });
+    }
   };
 
   const handleCancelEdit = () => {
@@ -75,10 +88,22 @@ const Profile = () => {
   };
 
   const handleChangePassword = () => {
-    toast({
-      title: "Password Change",
-      description: "Password change dialog would open here. In a real app, this would show a secure form.",
-    });
+    setShowPasswordDialog(true);
+  };
+
+  const handlePasswordSubmit = async (e) => {
+    e.preventDefault();
+    setPasswordLoading(true);
+    try {
+      await usersAPI.changePassword(user.id, passwordForm.oldPassword, passwordForm.newPassword);
+      toast({ title: 'Password changed', description: 'Your password has been updated.' });
+      setShowPasswordDialog(false);
+      setPasswordForm({ oldPassword: '', newPassword: '' });
+    } catch (err) {
+      toast({ title: 'Error', description: err?.response?.data?.error || 'Failed to change password', variant: 'destructive' });
+    } finally {
+      setPasswordLoading(false);
+    }
   };
 
   const handleEnableTwoFactor = () => {
@@ -196,12 +221,13 @@ const Profile = () => {
               <div className="text-sm text-gray-600 space-y-2">
                 <div className="flex items-center space-x-2">
                   <Calendar className="w-4 h-4" />
-                  <span>Last login: {userInfo.lastLogin}</span>
+                  <span>Last login: {userStats.loading ? 'Loading...' : userStats.lastLogin || 'N/A'}</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Mail className="w-4 h-4" />
                   <span>Email verified: ✓</span>
                 </div>
+                {userStats.error && <div className="text-red-500">{userStats.error}</div>}
               </div>
             </CardContent>
           </Card>
@@ -240,19 +266,18 @@ const Profile = () => {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Documents Uploaded</span>
-                <span className="font-semibold">{userInfo.documentsUploaded}</span>
+                <span className="font-semibold">{userStats.loading ? '...' : userStats.documentsUploaded}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Storage Used</span>
-                <span className="font-semibold">{userInfo.storageUsed}</span>
+                <span className="font-semibold">{userStats.loading ? '...' : (userStats.storageUsed ? (userStats.storageUsed / (1024*1024*1024)).toFixed(2) + ' GB' : '0 GB')}</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
-                <div className="bg-blue-600 h-2 rounded-full" style={{width: '24%'}}></div>
+                <div className="bg-blue-600 h-2 rounded-full" style={{width: userStats.loading ? '0%' : `${Math.min(100, (userStats.storageUsed/(10*1024*1024*1024))*100)}%`}}></div>
               </div>
               <div className="text-sm text-gray-500 text-center">
-                {userInfo.storageUsed} of {userInfo.storageLimit} used
+                {userStats.loading ? '...' : `${(userStats.storageUsed ? (userStats.storageUsed / (1024*1024*1024)).toFixed(2) : '0')} GB of 10 GB used`}
               </div>
-              
               <div className="pt-2 border-t">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Account Status</span>
@@ -267,6 +292,28 @@ const Profile = () => {
           </Card>
         </div>
       </div>
+      {/* Change Password Dialog */}
+      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Password</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handlePasswordSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="oldPassword">Current Password</Label>
+              <Input id="oldPassword" type="password" value={passwordForm.oldPassword} onChange={e => setPasswordForm(f => ({ ...f, oldPassword: e.target.value }))} required />
+            </div>
+            <div>
+              <Label htmlFor="newPassword">New Password</Label>
+              <Input id="newPassword" type="password" value={passwordForm.newPassword} onChange={e => setPasswordForm(f => ({ ...f, newPassword: e.target.value }))} required />
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button type="button" variant="outline" onClick={() => setShowPasswordDialog(false)}>Cancel</Button>
+              <Button type="submit" disabled={passwordLoading}>{passwordLoading ? 'Saving...' : 'Change Password'}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

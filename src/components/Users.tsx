@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,23 +7,20 @@ import { User, UserPlus, Search, Edit, Trash2, Shield } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '../contexts/AuthContext';
+import { usersAPI } from '../services/api';
 
 const Users = () => {
   const { user: currentUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
-  const [users, setUsers] = useState([
-    { id: 1, name: 'John Doe', email: 'john@company.com', role: 'Admin', status: 'Active', lastLogin: '2024-01-15' },
-    { id: 2, name: 'Jane Smith', email: 'jane@company.com', role: 'User', status: 'Active', lastLogin: '2024-01-14' },
-    { id: 3, name: 'Mike Johnson', email: 'mike@company.com', role: 'Viewer', status: 'Active', lastLogin: '2024-01-13' },
-    { id: 4, name: 'Sarah Wilson', email: 'sarah@company.com', role: 'User', status: 'Inactive', lastLogin: '2024-01-10' },
-    { id: 5, name: 'Tom Brown', email: 'tom@company.com', role: 'Viewer', status: 'Active', lastLogin: '2024-01-12' },
-  ]);
-  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'User' });
+  const [users, setUsers] = useState([]);
+  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'User', password: '' });
   const [editingUser, setEditingUser] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', role: '' });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [managingPermissions, setManagingPermissions] = useState(null);
   const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   // Check if current user has admin privileges
   const isAdmin = currentUser?.role === 'Admin';
@@ -43,59 +40,57 @@ const Users = () => {
     }
   };
 
-  const handleAddUser = () => {
-    if (!isAdmin) {
-      toast({
-        title: "Access denied",
-        description: "Only administrators can add users",
-        variant: "destructive",
+  const fetchUsers = () => {
+    setLoading(true);
+    usersAPI.getUsers()
+      .then(res => {
+        if (res.data.success) {
+          setUsers(res.data.users);
+        } else {
+          setError('Failed to fetch users');
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setError('Failed to fetch users');
+        setLoading(false);
       });
-      return;
-    }
-
-    if (!newUser.name.trim() || !newUser.email.trim()) {
-      toast({
-        title: "Required fields missing",
-        description: "Please enter name and email",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const user = {
-      id: Date.now(),
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role,
-      status: 'Active',
-      lastLogin: 'Never'
-    };
-
-    setUsers([...users, user]);
-    setNewUser({ name: '', email: '', role: 'User' });
-    setIsDialogOpen(false);
-    
-    toast({
-      title: "User added",
-      description: `${user.name} has been added successfully`,
-    });
   };
 
-  const handleDeleteUser = (userId) => {
+  useEffect(() => { fetchUsers(); }, []);
+
+  const handleAddUser = async () => {
     if (!isAdmin) {
-      toast({
-        title: "Access denied",
-        description: "Only administrators can delete users",
-        variant: "destructive",
-      });
+      toast({ title: 'Access denied', description: 'Only administrators can add users', variant: 'destructive' });
       return;
     }
+    if (!newUser.name.trim() || !newUser.email.trim() || !newUser.password.trim()) {
+      toast({ title: 'Required fields missing', description: 'Please enter name, email, and password', variant: 'destructive' });
+      return;
+    }
+    try {
+      await usersAPI.addUser(newUser);
+      setNewUser({ name: '', email: '', role: 'User', password: '' });
+      setIsDialogOpen(false);
+      fetchUsers();
+      toast({ title: 'User added', description: 'User has been added successfully' });
+    } catch (err) {
+      toast({ title: 'Error', description: err?.response?.data?.error || 'Failed to add user', variant: 'destructive' });
+    }
+  };
 
-    setUsers(users.filter(user => user.id !== userId));
-    toast({
-      title: "User deleted",
-      description: "User has been removed successfully",
-    });
+  const handleDeleteUser = async (userId) => {
+    if (!isAdmin) {
+      toast({ title: 'Access denied', description: 'Only administrators can delete users', variant: 'destructive' });
+      return;
+    }
+    try {
+      await usersAPI.deleteUser(userId);
+      fetchUsers();
+      toast({ title: 'User deleted', description: 'User has been removed successfully' });
+    } catch (err) {
+      toast({ title: 'Error', description: err?.response?.data?.error || 'Failed to delete user', variant: 'destructive' });
+    }
   };
 
   const toggleUserStatus = (userId) => {
@@ -134,27 +129,19 @@ const Users = () => {
     setEditForm({ name: user.name, email: user.email, role: user.role });
   };
 
-  const handleSaveEdit = () => {
-    // Users can only edit their own profile
+  const handleSaveEdit = async () => {
     if (!isAdmin && editingUser.email !== currentUser?.email) {
-      toast({
-        title: "Access denied",
-        description: "You can only edit your own profile",
-        variant: "destructive",
-      });
+      toast({ title: 'Access denied', description: 'You can only edit your own profile', variant: 'destructive' });
       return;
     }
-
-    setUsers(users.map(user => 
-      user.id === editingUser.id 
-        ? { ...user, name: editForm.name, email: editForm.email, role: isAdmin ? editForm.role : user.role }
-        : user
-    ));
-    setEditingUser(null);
-    toast({
-      title: "User updated",
-      description: "User has been updated successfully",
-    });
+    try {
+      await usersAPI.updateUser(editingUser.id, { ...editForm, status: editingUser.status });
+      setEditingUser(null);
+      fetchUsers();
+      toast({ title: 'User updated', description: 'User has been updated successfully' });
+    } catch (err) {
+      toast({ title: 'Error', description: err?.response?.data?.error || 'Failed to update user', variant: 'destructive' });
+    }
   };
 
   const handleManagePermissions = (user) => {
@@ -264,6 +251,13 @@ const Users = () => {
     );
   }
 
+  if (loading) {
+    return <div className="p-8 text-center text-gray-500">Loading users...</div>;
+  }
+  if (error) {
+    return <div className="p-8 text-center text-red-500">{error}</div>;
+  }
+
   // Full admin interface
   return (
     <div className="space-y-6">
@@ -313,6 +307,16 @@ const Users = () => {
                     <option value="User">User</option>
                     <option value="Admin">Admin</option>
                   </select>
+                </div>
+                <div>
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                    placeholder="Enter password"
+                  />
                 </div>
                 <Button onClick={handleAddUser} className="w-full bg-blue-600 hover:bg-blue-700">
                   Add User

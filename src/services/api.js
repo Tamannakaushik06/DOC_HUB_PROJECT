@@ -32,4 +32,24 @@ export const commentsAPI = {
   deleteComment: (id) => api.delete(`/comments/${id}`),
 };
 
+export const usersAPI = {
+  getUsers: () => api.get('/users'),
+  addUser: (user) => api.post('/users', user),
+  updateUser: (id, user) => api.put(`/users/${id}`, user),
+  deleteUser: (id) => api.delete(`/users/${id}`),
+  updateProfile: (id, data) => api.put(`/users/${id}`, data),
+  changePassword: (id, oldPassword, newPassword) => api.post(`/users/${id}/change-password`, { oldPassword, newPassword }),
+};
+
+export const categoriesAPI = {
+  getCategories: () => api.get('/categories'),
+  addCategory: (category) => api.post('/categories', category),
+  deleteCategory: (id) => api.delete(`/categories/${id}`),
+};
+
+export const statsAPI = {
+  getStats: () => api.get('/stats'),
+  getUserStats: (userId) => api.get(`/stats/user/${userId}`),
+};
+
 export default api;

@@ -1,27 +1,62 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileText, Users, FolderOpen, Calendar, Settings, Eye } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '../contexts/AuthContext';
+import { statsAPI, usersAPI, documentsAPI } from '../services/api';
+import { Input } from '@/components/ui/input';
+import { toast } from '@/hooks/use-toast';
 
 const Dashboard = () => {
   const { user } = useAuth();
   const [viewingDoc, setViewingDoc] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [stats, setStats] = useState({
+    totalDocuments: 0,
+    totalUsers: 0,
+    totalCategories: 0,
+    recentUploads: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [notifEnabled, setNotifEnabled] = useState(() => localStorage.getItem('notifications') !== 'off');
+  const [documents, setDocuments] = useState([]);
 
-  const stats = [
-    { title: 'Total Documents', value: '1,247', icon: FileText, color: 'bg-blue-500' },
-    { title: 'Active Users', value: '89', icon: Users, color: 'bg-green-500' },
-    { title: 'Categories', value: '12', icon: FolderOpen, color: 'bg-purple-500' },
-    { title: 'Recent Uploads', value: '34', icon: Calendar, color: 'bg-orange-500' },
-  ];
+  useEffect(() => {
+    setLoading(true);
+    statsAPI.getStats()
+      .then(res => {
+        if (res.data.success) {
+          setStats(res.data.stats);
+        } else {
+          setError('Failed to fetch stats');
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setError('Failed to fetch stats');
+        setLoading(false);
+      });
+  }, []);
 
-  const recentDocuments = [
-    { id: 1, name: 'Annual Report 2024.pdf', category: 'Finance', uploadDate: '2024-01-15', size: '2.4 MB' },
-    { id: 2, name: 'HR Policy Update.docx', category: 'HR', uploadDate: '2024-01-14', size: '856 KB' },
-    { id: 3, name: 'Project Proposal.pdf', category: 'Projects', uploadDate: '2024-01-13', size: '1.2 MB' },
-    { id: 4, name: 'Legal Contract.pdf', category: 'Legal', uploadDate: '2024-01-12', size: '945 KB' },
+  useEffect(() => {
+    documentsAPI.getDocuments()
+      .then(res => {
+        if (res.data.success) {
+          setDocuments(res.data.documents);
+        }
+      });
+  }, []);
+
+  const statsCards = [
+    { title: 'Total Documents', value: stats.totalDocuments, icon: FileText, color: 'bg-blue-500' },
+    { title: 'Active Users', value: stats.totalUsers, icon: Users, color: 'bg-green-500' },
+    { title: 'Categories', value: stats.totalCategories, icon: FolderOpen, color: 'bg-purple-500' },
+    { title: 'Recent Uploads', value: stats.recentUploads, icon: Calendar, color: 'bg-orange-500' },
   ];
 
   const handleDocumentClick = (doc) => {
@@ -32,6 +67,31 @@ const Dashboard = () => {
     setShowSettings(true);
   };
 
+  const handleChangePassword = async () => {
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      toast({ title: 'Error', description: 'All password fields are required', variant: 'destructive' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({ title: 'Error', description: 'New passwords do not match', variant: 'destructive' });
+      return;
+    }
+    try {
+      await usersAPI.changePassword(user.id, oldPassword, newPassword);
+      setOldPassword(''); setNewPassword(''); setConfirmPassword('');
+      toast({ title: 'Success', description: 'Password changed successfully' });
+    } catch (err) {
+      toast({ title: 'Error', description: err?.response?.data?.error || 'Failed to change password', variant: 'destructive' });
+    }
+  };
+
+  const handleNotifToggle = () => {
+    setNotifEnabled((prev) => {
+      localStorage.setItem('notifications', prev ? 'off' : 'on');
+      return !prev;
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -40,21 +100,12 @@ const Dashboard = () => {
           <div className="text-sm text-gray-500">
             Welcome back, {user?.name || 'User'}
           </div>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={handleSettingsClick}
-            className="flex items-center space-x-2"
-          >
-            <Settings className="w-4 h-4" />
-            <span>Settings</span>
-          </Button>
         </div>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => (
+        {statsCards.map((stat, index) => (
           <Card key={index} className="relative overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-gray-600">
@@ -78,9 +129,9 @@ const Dashboard = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {recentDocuments.map((doc, index) => (
-              <div 
-                key={index} 
+            {documents.slice(0, 5).map((doc) => (
+              <div
+                key={doc.id}
                 className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
                 onClick={() => handleDocumentClick(doc)}
               >
@@ -89,14 +140,14 @@ const Dashboard = () => {
                     <FileText className="w-5 h-5 text-blue-600" />
                   </div>
                   <div>
-                    <h3 className="font-medium text-gray-900">{doc.name}</h3>
-                    <p className="text-sm text-gray-500">{doc.category} • {doc.size}</p>
+                    <h3 className="font-medium text-gray-900">{doc.title || doc.name}</h3>
+                    <p className="text-sm text-gray-500">{doc.category} • {(doc.file_size ? (doc.file_size / (1024*1024)).toFixed(2) + ' MB' : '')}</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-500">{doc.uploadDate}</span>
-                  <Button 
-                    variant="ghost" 
+                  <span className="text-sm text-gray-500">{doc.created_at ? doc.created_at.split('T')[0] : ''}</span>
+                  <Button
+                    variant="ghost"
                     size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -131,67 +182,6 @@ const Dashboard = () => {
                 <p className="text-sm text-gray-500 mt-2">This is a sample document from the dashboard</p>
                 <p className="text-xs text-blue-600 mt-2">To view actual files, please upload them in the Documents section</p>
               </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Settings Dialog */}
-      <Dialog open={showSettings} onOpenChange={setShowSettings}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Dashboard Settings</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Display Options</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Show recent documents</span>
-                    <Button variant="outline" size="sm">Enabled</Button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Auto-refresh stats</span>
-                    <Button variant="outline" size="sm">Enabled</Button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Compact view</span>
-                    <Button variant="outline" size="sm">Disabled</Button>
-                  </div>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Notifications</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">New uploads</span>
-                    <Button variant="outline" size="sm">Enabled</Button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">User activity</span>
-                    <Button variant="outline" size="sm">Enabled</Button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">System updates</span>
-                    <Button variant="outline" size="sm">Disabled</Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-            
-            <div className="flex justify-end space-x-2">
-              <Button variant="outline" onClick={() => setShowSettings(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => setShowSettings(false)}>
-                Save Changes
-              </Button>
             </div>
           </div>
         </DialogContent>

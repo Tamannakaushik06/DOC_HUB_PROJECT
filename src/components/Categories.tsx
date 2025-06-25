@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +8,7 @@ import { FolderOpen, Plus, Edit, Trash2, FileText, ArrowLeft, Eye, Download, Mes
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { documentsAPI, categoriesAPI } from '../services/api';
 
 interface DocumentType {
   id: number;
@@ -23,15 +23,7 @@ interface DocumentType {
 }
 
 const Categories = () => {
-  const [categories, setCategories] = useState([
-    { id: 1, name: 'Finance', description: 'Financial documents and reports', documentCount: 0, color: 'bg-green-500' },
-    { id: 2, name: 'HR', description: 'Human resources policies and procedures', documentCount: 0, color: 'bg-blue-500' },
-    { id: 3, name: 'Legal', description: 'Legal contracts and agreements', documentCount: 0, color: 'bg-purple-500' },
-    { id: 4, name: 'Projects', description: 'Project documentation and proposals', documentCount: 0, color: 'bg-orange-500' },
-    { id: 5, name: 'Marketing', description: 'Marketing materials and campaigns', documentCount: 0, color: 'bg-pink-500' },
-    { id: 6, name: 'Operations', description: 'Operational procedures and manuals', documentCount: 0, color: 'bg-indigo-500' },
-  ]);
-  
+  const [categories, setCategories] = useState([]);
   const [documents, setDocuments] = useState<DocumentType[]>([]);
   const [newCategory, setNewCategory] = useState({ name: '', description: '' });
   const [editingCategory, setEditingCategory] = useState(null);
@@ -47,41 +39,42 @@ const Categories = () => {
   const [comments, setComments] = useState({});
   const { toast } = useToast();
   const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const colors = ['bg-green-500', 'bg-blue-500', 'bg-purple-500', 'bg-orange-500', 'bg-pink-500', 'bg-indigo-500', 'bg-red-500', 'bg-yellow-500'];
 
-  // Load documents from localStorage
+  const fetchCategories = () => {
+    categoriesAPI.getCategories()
+      .then(res => {
+        if (res.data.success) {
+          setCategories(res.data.categories);
+        } else {
+          toast({ title: 'Error', description: 'Failed to fetch categories', variant: 'destructive' });
+        }
+      })
+      .catch(() => {
+        toast({ title: 'Error', description: 'Failed to fetch categories', variant: 'destructive' });
+      });
+  };
+
+  useEffect(() => { fetchCategories(); }, []);
+
   useEffect(() => {
-    const savedDocuments = localStorage.getItem('app_documents');
-    if (savedDocuments) {
-      try {
-        const parsedDocs: DocumentType[] = JSON.parse(savedDocuments);
-        // Recreate file objects for uploaded files
-        const docsWithFiles = parsedDocs.map(doc => {
-          if (doc.fileData) {
-            const byteString = atob(doc.fileData.split(',')[1]);
-            const mimeString = doc.fileData.split(',')[0].split(':')[1].split(';')[0];
-            const ab = new ArrayBuffer(byteString.length);
-            const ia = new Uint8Array(ab);
-            for (let i = 0; i < byteString.length; i++) {
-              ia[i] = byteString.charCodeAt(i);
-            }
-            const blob = new Blob([ab], { type: mimeString });
-            const file = new File([blob], doc.name, { type: mimeString });
-            return {
-              ...doc,
-              file: file,
-              fileUrl: URL.createObjectURL(blob),
-              fileData: undefined
-            };
-          }
-          return doc;
-        });
-        setDocuments(docsWithFiles);
-      } catch (error) {
-        console.error('Error loading documents:', error);
-      }
-    }
+    setLoading(true);
+    documentsAPI.getDocuments()
+      .then(res => {
+        if (res.data.success) {
+          setDocuments(res.data.documents);
+        } else {
+          setError('Failed to fetch documents');
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setError('Failed to fetch documents');
+        setLoading(false);
+      });
   }, []);
 
   // Update category document counts
@@ -93,40 +86,30 @@ const Categories = () => {
     setCategories(updatedCategories);
   }, [documents]);
 
-  const handleAddCategory = () => {
+  const handleAddCategory = async () => {
     if (!newCategory.name.trim()) {
-      toast({
-        title: "Name required",
-        description: "Please enter a category name",
-        variant: "destructive",
-      });
+      toast({ title: 'Name required', description: 'Please enter a category name', variant: 'destructive' });
       return;
     }
-
-    const category = {
-      id: Date.now(),
-      name: newCategory.name,
-      description: newCategory.description,
-      documentCount: 0,
-      color: colors[Math.floor(Math.random() * colors.length)]
-    };
-
-    setCategories([...categories, category]);
-    setNewCategory({ name: '', description: '' });
-    setIsDialogOpen(false);
-    
-    toast({
-      title: "Category added",
-      description: `${category.name} has been created successfully`,
-    });
+    try {
+      await categoriesAPI.addCategory(newCategory);
+      setNewCategory({ name: '', description: '' });
+      setIsDialogOpen(false);
+      fetchCategories();
+      toast({ title: 'Category added', description: `${newCategory.name} has been created successfully` });
+    } catch (err) {
+      toast({ title: 'Error', description: err?.response?.data?.error || 'Failed to add category', variant: 'destructive' });
+    }
   };
 
-  const handleDeleteCategory = (categoryId) => {
-    setCategories(categories.filter(cat => cat.id !== categoryId));
-    toast({
-      title: "Category deleted",
-      description: "Category has been removed successfully",
-    });
+  const handleDeleteCategory = async (categoryId) => {
+    try {
+      await categoriesAPI.deleteCategory(categoryId);
+      fetchCategories();
+      toast({ title: 'Category deleted', description: 'Category has been removed successfully' });
+    } catch (err) {
+      toast({ title: 'Error', description: err?.response?.data?.error || 'Failed to delete category', variant: 'destructive' });
+    }
   };
 
   const handleEditCategory = (category) => {
@@ -168,15 +151,6 @@ const Categories = () => {
         : doc
     );
     setDocuments(updatedDocs);
-    
-    // Update localStorage
-    const docsToSave = updatedDocs.map(doc => ({
-      ...doc,
-      file: null,
-      fileUrl: null,
-      fileData: doc.file ? 'placeholder' : undefined
-    }));
-    localStorage.setItem('app_documents', JSON.stringify(docsToSave));
     
     setEditingDoc(null);
     toast({

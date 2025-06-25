@@ -21,9 +21,17 @@ const db = mysql.createConnection({
 
 // ✅ Import route files
 const authRoutes = require('./routes/auth'); // Adjust path to your auth.js file
+const usersRoutes = require('./routes/users');
+const documentsRoutes = require('./routes/documents');
+const categoriesRoutes = require('./routes/categories');
+const statsRoutes = require('./routes/stats');
 
 // ✅ Register route middlewares
 app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/documents', documentsRoutes);
+app.use('/api/categories', categoriesRoutes);
+app.use('/api/stats', statsRoutes);
 
 // ✅ Test DB connection route
 app.get('/api/test-db', (req, res) => {

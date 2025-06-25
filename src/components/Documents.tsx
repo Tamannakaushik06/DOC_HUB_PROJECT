@@ -8,6 +8,7 @@ import { FileText, Upload, Search, Download, Edit, Trash2, Eye, Plus, MessageSqu
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { documentsAPI, categoriesAPI } from '../services/api';
 
 interface DocumentType {
   id: number;
@@ -34,149 +35,60 @@ const Documents = () => {
   const [newComment, setNewComment] = useState('');
   const { toast } = useToast();
   const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('');
 
-  // Load documents from localStorage based on current user ID
-  useEffect(() => {
-    if (user) {
-      const userDocumentsKey = `app_documents_user_${user.id}`;
-      const savedDocuments = localStorage.getItem(userDocumentsKey);
-      if (savedDocuments) {
-        try {
-          const parsedDocs: DocumentType[] = JSON.parse(savedDocuments);
-          // Recreate blob URLs for uploaded files
-          const docsWithUrls = parsedDocs.map(doc => {
-            if (doc.fileData) {
-              // Convert base64 back to blob and create URL
-              const byteString = atob(doc.fileData.split(',')[1]);
-              const mimeString = doc.fileData.split(',')[0].split(':')[1].split(';')[0];
-              const ab = new ArrayBuffer(byteString.length);
-              const ia = new Uint8Array(ab);
-              for (let i = 0; i < byteString.length; i++) {
-                ia[i] = byteString.charCodeAt(i);
-              }
-              const blob = new Blob([ab], { type: mimeString });
-              const file = new File([blob], doc.name, { type: mimeString });
-              return {
-                ...doc,
-                file: file,
-                fileUrl: URL.createObjectURL(blob),
-                fileData: undefined
-              };
-            }
-            return doc;
-          });
-          setDocuments(docsWithUrls);
-        } catch (error) {
-          console.error('Error loading user documents from localStorage:', error);
+  const fetchDocuments = () => {
+    setLoading(true);
+    documentsAPI.getDocuments()
+      .then(res => {
+        if (res.data.success) {
+          setDocuments(res.data.documents);
+        } else {
+          setError('Failed to fetch documents');
         }
-      } else {
-        // If no user-specific documents exist, initialize with empty array
-        setDocuments([]);
-      }
-    }
-  }, [user]);
+        setLoading(false);
+      })
+      .catch(() => {
+        setError('Failed to fetch documents');
+        setLoading(false);
+      });
+  };
 
-  // Save documents to localStorage with user-specific key whenever documents change
-  useEffect(() => {
-    if (user && documents.length >= 0) { // Include empty array case
-      const saveDocuments = async () => {
-        const docsToSave = await Promise.all(
-          documents.map(async (doc) => {
-            if (doc.file && !doc.fileData) {
-              // Convert file to base64 for storage
-              return new Promise<DocumentType>((resolve) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                  resolve({
-                    ...doc,
-                    file: null,
-                    fileUrl: null,
-                    fileData: reader.result as string
-                  });
-                };
-                reader.readAsDataURL(doc.file);
-              });
-            }
-            return {
-              ...doc,
-              file: null,
-              fileUrl: null
-            };
-          })
-        );
-        const userDocumentsKey = `app_documents_user_${user.id}`;
-        localStorage.setItem(userDocumentsKey, JSON.stringify(docsToSave));
-        
-        // Also save to global comments with user-specific key
-        const userCommentsKey = `app_comments_user_${user.id}`;
-        localStorage.setItem(userCommentsKey, JSON.stringify(comments));
-      };
-      
-      saveDocuments();
-    }
-  }, [documents, user, comments]);
+  useEffect(() => { if (user) fetchDocuments(); }, [user]);
 
-  // Load comments from localStorage based on user ID
   useEffect(() => {
-    if (user) {
-      const userCommentsKey = `app_comments_user_${user.id}`;
-      const savedComments = localStorage.getItem(userCommentsKey);
-      if (savedComments) {
-        try {
-          setComments(JSON.parse(savedComments));
-        } catch (error) {
-          console.error('Error loading user comments from localStorage:', error);
-          setComments({});
+    categoriesAPI.getCategories()
+      .then(res => {
+        if (res.data.success) {
+          setCategories(res.data.categories);
+          setSelectedCategory(res.data.categories[0]?.name || '');
         }
-      } else {
-        setComments({});
-      }
-    }
-  }, [user]);
-
-  // Save comments to localStorage whenever comments change
-  useEffect(() => {
-    if (user) {
-      const userCommentsKey = `app_comments_user_${user.id}`;
-      localStorage.setItem(userCommentsKey, JSON.stringify(comments));
-    }
-  }, [comments, user]);
-
-  const filteredDocuments = documents.filter(doc =>
-    doc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    doc.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+      });
+  }, []);
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file || !user) return;
-
     setIsUploading(true);
-    
-    // Create a proper blob URL for file viewing
-    const fileUrl = URL.createObjectURL(file);
-    
-    setTimeout(() => {
-      const newDocument: DocumentType = {
-        id: Date.now(),
-        name: file.name,
-        category: 'General',
-        uploadDate: new Date().toISOString().split('T')[0],
-        size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
-        uploader: user.name,
-        file: file,
-        fileUrl: fileUrl,
-        userId: user.id // Link document to current user
-      };
-      
-      setDocuments([newDocument, ...documents]);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('title', file.name);
+    formData.append('category', selectedCategory);
+    try {
+      await documentsAPI.uploadDocument(formData);
+      fetchDocuments();
       setIsUploading(false);
-      
       toast({
-        title: "File uploaded successfully",
+        title: 'File uploaded successfully',
         description: `${file.name} has been uploaded and is ready for viewing`,
       });
-    }, 2000);
+    } catch (err) {
+      setIsUploading(false);
+      toast({ title: 'Error', description: err?.response?.data?.error || 'Failed to upload document', variant: 'destructive' });
+    }
   };
 
   const handleDownload = (doc) => {
@@ -204,18 +116,14 @@ const Documents = () => {
     }
   };
 
-  const handleDelete = (docId) => {
-    // Clean up file URLs to prevent memory leaks
-    const docToDelete = documents.find(doc => doc.id === docId);
-    if (docToDelete && docToDelete.fileUrl) {
-      URL.revokeObjectURL(docToDelete.fileUrl);
+  const handleDelete = async (docId) => {
+    try {
+      await documentsAPI.deleteDocument(docId);
+      fetchDocuments();
+      toast({ title: 'Document deleted', description: 'Document has been removed successfully' });
+    } catch (err) {
+      toast({ title: 'Error', description: err?.response?.data?.error || 'Failed to delete document', variant: 'destructive' });
     }
-    
-    setDocuments(documents.filter(doc => doc.id !== docId));
-    toast({
-      title: "Document deleted",
-      description: "Document has been removed successfully",
-    });
   };
 
   const handleView = (doc) => {
@@ -427,6 +335,19 @@ const Documents = () => {
                   disabled={isUploading}
                 />
               </div>
+              <div>
+                <Label htmlFor="category">Category</Label>
+                <select
+                  id="category"
+                  value={selectedCategory}
+                  onChange={e => setSelectedCategory(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.name}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
               {isUploading && (
                 <div className="text-center">
                   <div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
@@ -456,10 +377,10 @@ const Documents = () => {
       {/* Documents List */}
       <Card>
         <CardHeader>
-          <CardTitle>My Documents ({filteredDocuments.length})</CardTitle>
+          <CardTitle>My Documents ({documents.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          {filteredDocuments.length === 0 ? (
+          {documents.length === 0 ? (
             <div className="text-center py-8">
               <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-600 text-lg mb-2">No documents found</p>
@@ -467,7 +388,7 @@ const Documents = () => {
             </div>
           ) : (
             <div className="space-y-2">
-              {filteredDocuments.map((doc) => (
+              {documents.map((doc) => (
                 <div key={doc.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
                   <div className="flex items-center space-x-4 cursor-pointer" onClick={() => handleDocumentClick(doc)}>
                     <div className="p-2 bg-blue-100 rounded-lg">
