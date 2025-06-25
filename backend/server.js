@@ -1,7 +1,8 @@
-const express = require('express');
-const cors = require('cors');
-const mysql = require('mysql2');
-require('dotenv').config();
+const express = require("express");
+const cors = require("cors");
+const mysql = require("mysql2");
+const path = require("path");
+require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,6 +10,8 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ✅ MySQL connection setup
 const db = mysql.createConnection({
@@ -20,106 +23,108 @@ const db = mysql.createConnection({
 });
 
 // ✅ Import route files
-const authRoutes = require('./routes/auth'); // Adjust path to your auth.js file
-const usersRoutes = require('./routes/users');
-const documentsRoutes = require('./routes/documents');
-const categoriesRoutes = require('./routes/categories');
-const statsRoutes = require('./routes/stats');
+const authRoutes = require("./routes/auth"); // Adjust path to your auth.js file
+const usersRoutes = require("./routes/users");
+const documentsRoutes = require("./routes/documents");
+const categoriesRoutes = require("./routes/categories");
+const statsRoutes = require("./routes/stats");
 
 // ✅ Register route middlewares
-app.use('/api/auth', authRoutes);
-app.use('/api/users', usersRoutes);
-app.use('/api/documents', documentsRoutes);
-app.use('/api/categories', categoriesRoutes);
-app.use('/api/stats', statsRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/users", usersRoutes);
+app.use("/api/documents", documentsRoutes);
+app.use("/api/categories", categoriesRoutes);
+app.use("/api/stats", statsRoutes);
 
 // ✅ Test DB connection route
-app.get('/api/test-db', (req, res) => {
-  console.log('Testing database connection...');
-  db.query('SELECT 1 as test', (err, result) => {
+app.get("/api/test-db", (req, res) => {
+  console.log("Testing database connection...");
+  db.query("SELECT 1 as test", (err, result) => {
     if (err) {
-      console.error('DB connection error:', err.message);
-      return res.status(500).json({ 
-        success: false, 
+      console.error("DB connection error:", err.message);
+      return res.status(500).json({
+        success: false,
         error: err.message,
-        details: 'Check your database credentials and connection'
+        details: "Check your database credentials and connection",
       });
     }
-    console.log('Database connected successfully!');
-    res.json({ 
-      success: true, 
-      message: 'Database connected successfully', 
-      result: result[0]
+    console.log("Database connected successfully!");
+    res.json({
+      success: true,
+      message: "Database connected successfully",
+      result: result[0],
     });
   });
 });
 
 // Test root route
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Server is working!', 
+app.get("/", (req, res) => {
+  res.json({
+    message: "Server is working!",
     timestamp: new Date(),
     availableRoutes: [
-      'GET /',
-      'GET /api/test-db',
-      'POST /api/auth/login',
-      'POST /api/auth/register'
-    ]
+      "GET /",
+      "GET /api/test-db",
+      "POST /api/auth/login",
+      "POST /api/auth/register",
+    ],
   });
 });
 
 // Simple test login route (keeping your original for now)
-app.post('/api/auth/test-login', (req, res) => {
+app.post("/api/auth/test-login", (req, res) => {
   const { email, password } = req.body;
-  if (email === 'admin@dms.com' && password === 'admin123') {
-    res.json({ success: true, message: 'Test login successful' });
+  if (email === "admin@dms.com" && password === "admin123") {
+    res.json({ success: true, message: "Test login successful" });
   } else {
-    res.status(401).json({ success: false, message: 'Invalid test credentials' });
+    res
+      .status(401)
+      .json({ success: false, message: "Invalid test credentials" });
   }
 });
 
 // ✅ 404 handler - MUST be after all routes
 app.use((req, res) => {
-  res.status(404).json({ 
-    message: `Route ${req.method} ${req.originalUrl} not found`,
+  res.status(404).json({
+    message: Route ${req.method} ${req.originalUrl} not found,
     availableRoutes: [
-      'GET /',
-      'GET /api/test-db', 
-      'POST /api/auth/login',
-      'POST /api/auth/register',
-      'POST /api/auth/test-login'
-    ]
+      "GET /",
+      "GET /api/test-db",
+      "POST /api/auth/login",
+      "POST /api/auth/register",
+      "POST /api/auth/test-login",
+    ],
   });
 });
 
 // Start server
 const server = app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Test it at: http://localhost:${PORT}`);
-  console.log(`🔗 Database test: http://localhost:${PORT}/api/test-db`);
-  console.log('📌 Available routes:');
-  console.log('   GET  /', );
-  console.log('   GET  /api/test-db');
-  console.log('   POST /api/auth/login');
-  console.log('   POST /api/auth/register');
-  console.log('   POST /api/auth/test-login');
+  console.log(🚀 Server running on port ${PORT});
+  console.log(📍 Test it at: http://localhost:${PORT});
+  console.log(🔗 Database test: http://localhost:${PORT}/api/test-db);
+  console.log("📌 Available routes:");
+  console.log("   GET  /");
+  console.log("   GET  /api/test-db");
+  console.log("   POST /api/auth/login");
+  console.log("   POST /api/auth/register");
+  console.log("   POST /api/auth/test-login");
 });
 
 // Graceful shutdown handlers
-process.on('SIGINT', () => {
-  console.log('\nReceived SIGINT, shutting down gracefully');
+process.on("SIGINT", () => {
+  console.log("\nReceived SIGINT, shutting down gracefully");
   server.close(() => {
     db.end();
-    console.log('Server and database connections closed');
+    console.log("Server and database connections closed");
     process.exit(0);
   });
 });
 
-process.on('SIGTERM', () => {
-  console.log('Received SIGTERM, shutting down gracefully');
+process.on("SIGTERM", () => {
+  console.log("Received SIGTERM, shutting down gracefully");
   server.close(() => {
     db.end();
-    console.log('Server and database connections closed');
+    console.log("Server and database connections closed");
     process.exit(0);
   });
 });
