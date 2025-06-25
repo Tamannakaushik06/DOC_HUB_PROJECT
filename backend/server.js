@@ -86,7 +86,7 @@ app.post("/api/auth/test-login", (req, res) => {
 // ✅ 404 handler - MUST be after all routes
 app.use((req, res) => {
   res.status(404).json({
-    message: Route ${req.method} ${req.originalUrl} not found,
+    message: `Route ${req.method} ${req.originalUrl} not found`,
     availableRoutes: [
       "GET /",
       "GET /api/test-db",
@@ -99,9 +99,9 @@ app.use((req, res) => {
 
 // Start server
 const server = app.listen(PORT, () => {
-  console.log(🚀 Server running on port ${PORT});
-  console.log(📍 Test it at: http://localhost:${PORT});
-  console.log(🔗 Database test: http://localhost:${PORT}/api/test-db);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📍 Test it at: http://localhost:${PORT}`);
+  console.log(`🔗 Database test: http://localhost:${PORT}/api/test-db`);
   console.log("📌 Available routes:");
   console.log("   GET  /");
   console.log("   GET  /api/test-db");
